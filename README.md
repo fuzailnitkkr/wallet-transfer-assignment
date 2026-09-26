@@ -700,7 +700,7 @@ migrations/
                                              transfers
   0007_fix_ledger_wallet_role_not_found.sql  Hot-fix: ensure the 0004 trigger
                                              function includes the NOT FOUND guard
-  008enforce_processed_transfer_has_ledger_pair.sql Hot-fix: ensure the 0006 trigger
+  008_enforce_processed_transfer_has_ledger_pair.sql Hot-fix: ensure the 0006 trigger
                                              closes the inverse gap
   
   embed.go                                   //go:embed *.sql for the runner
