@@ -47,9 +47,7 @@ go mod download
 make db-up
 ```
 
-PostgreSQL 17 starts in Docker and is exposed at `localhost:5433`. Port 5433
-avoids conflicting with a local PostgreSQL instance on port 5432.
-
+PostgreSQL 17 starts in Docker and is exposed at `localhost:5433`.
 ### 3. Create the schema and demo wallets
 
 ```sh
