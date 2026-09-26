@@ -29,7 +29,8 @@ WHERE id = $1 AND balance >= $2`
 const CreditWalletSQL = `
 UPDATE wallets
 SET balance = balance + $2, updated_at = now()
-WHERE id = $1`
+WHERE id = $1
+  AND balance <= 9223372036854775807 - $2`
 
 const GetWalletSQL = `
 SELECT id, balance, currency, created_at, updated_at

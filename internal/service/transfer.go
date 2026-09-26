@@ -109,6 +109,13 @@ func (s *Service) attempt(ctx context.Context, tx Tx, req dto.TransferRequest, c
 	if err != nil {
 		return outcome{}, err
 	}
+	// The destination row is locked, so this preflight remains valid through
+	// the subsequent credit. Rejecting before the debit keeps the failure a
+	// normal recorded outcome rather than relying on PostgreSQL's bigint
+	// overflow error to abort the transaction.
+	if balanceOf(locked, req.ToWalletID) > int64(^uint64(0)>>1)-req.Amount {
+		return s.recordBalanceOverflow(ctx, tx, req, transfer)
+	}
 
 	// 4a. The debit's guard clause decides sufficiency.
 	debited, err := tx.DebitWallet(ctx, req.FromWalletID, req.Amount)
@@ -240,6 +247,38 @@ func (s *Service) recordInsufficientFunds(ctx context.Context, tx Tx, req dto.Tr
 				"idempotency_key", req.IdempotencyKey,
 				"from_wallet_id", req.FromWalletID,
 				"balance", available,
+				"amount", req.Amount)
+		},
+	}, nil
+}
+
+// recordBalanceOverflow rejects a transfer whose destination cannot represent
+// the credited balance in PostgreSQL's bigint range. It runs before the debit,
+// so no compensating balance update is needed.
+func (s *Service) recordBalanceOverflow(ctx context.Context, tx Tx, req dto.TransferRequest, transfer domain.Transfer) (outcome, error) {
+	if err := tx.MarkFailed(ctx, transfer.ID, constants.FailureBalanceOverflow); err != nil {
+		return outcome{}, err
+	}
+
+	body, err := marshal(dto.ErrorResponse{Error: dto.ErrorBody{
+		Code:       constants.CodeBalanceOverflow,
+		Message:    fmt.Sprintf("wallet %s cannot receive amount %d without exceeding the maximum balance", req.ToWalletID, req.Amount),
+		TransferID: transfer.ID,
+	}})
+	if err != nil {
+		return outcome{}, err
+	}
+	if err := tx.CompleteIdempotency(ctx, req.IdempotencyKey, &transfer.ID, http.StatusUnprocessableEntity, body); err != nil {
+		return outcome{}, err
+	}
+
+	return outcome{
+		result: Result{Status: http.StatusUnprocessableEntity, Body: body},
+		logLine: func(ctx context.Context) {
+			s.logger.InfoContext(ctx, "transfer failed: destination balance overflow",
+				"transfer_id", transfer.ID,
+				"idempotency_key", req.IdempotencyKey,
+				"to_wallet_id", req.ToWalletID,
 				"amount", req.Amount)
 		},
 	}, nil

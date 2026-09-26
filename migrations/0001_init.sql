@@ -84,8 +84,9 @@ CREATE TABLE idempotency_records (
     -- Only outcomes worth replaying are recorded. 400 (malformed) and 409
     -- (key reuse with a different payload) never write an idempotency row.
     CONSTRAINT idem_response_status_known CHECK (response_status IS NULL OR response_status IN (201, 404, 422)),
-    CONSTRAINT idem_transfer_requires_recorded_outcome
-        CHECK (transfer_id IS NULL OR response_status IN (201, 422)),
-    CONSTRAINT idem_notfound_has_no_transfer
-        CHECK (response_status IS DISTINCT FROM 404 OR transfer_id IS NULL)
+    CONSTRAINT idem_transfer_matches_outcome
+        CHECK (CASE
+            WHEN response_status IN (201, 422) THEN transfer_id IS NOT NULL
+            ELSE transfer_id IS NULL
+        END)
 );

@@ -65,6 +65,11 @@ func (s *Service) ListLedger(ctx context.Context, walletID string, limit int) ([
 	if limit <= 0 || limit > constants.MaxLedgerLimit {
 		limit = constants.MaxLedgerLimit
 	}
+	// A ledger query alone cannot distinguish an existing wallet with no
+	// history from a nonexistent wallet. Preserve the documented 404 contract.
+	if _, err := s.store.GetWallet(ctx, walletID); err != nil {
+		return nil, err
+	}
 	return s.store.ListWalletLedger(ctx, walletID, limit)
 }
 

@@ -75,8 +75,9 @@ func Run(m *testing.M) int {
 // database" advisory lock. The wait is bounded so a stuck suite fails loudly
 // instead of hanging forever.
 const (
-	suiteLockKey = 0x7465737473756974 // "testsuit"
-	suiteWait    = 10 * time.Minute
+	suiteLockKey            = 0x7465737473756974 // "testsuit"
+	databaseCreationLockKey = 0x7465737464626372 // "testdbcr"
+	suiteWait               = 10 * time.Minute
 )
 
 func lockSuite(ctx context.Context, conn *pgx.Conn) error {
@@ -107,6 +108,16 @@ func ensureDatabase(ctx context.Context, url string) error {
 		return fmt.Errorf("connect to maintenance database: %w", err)
 	}
 	defer conn.Close(context.WithoutCancel(ctx))
+
+	// Test packages begin concurrently. Serialize the check/create sequence on
+	// the maintenance database so two packages cannot both observe a missing
+	// target and race to CREATE DATABASE.
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", databaseCreationLockKey); err != nil {
+		return fmt.Errorf("lock test database creation: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", databaseCreationLockKey)
+	}()
 
 	var exists bool
 	if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", target).Scan(&exists); err != nil {

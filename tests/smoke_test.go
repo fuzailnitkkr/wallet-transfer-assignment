@@ -246,6 +246,52 @@ func TestSmokeV1RoutesAndLegacyCompatibility(t *testing.T) {
 	}
 }
 
+func TestLedgerForUnknownWalletReturnsNotFound(t *testing.T) {
+	env := testutil.NewEnv(t)
+	srv := newServer(t, env)
+
+	status, raw := get(t, srv, "/v1/wallets/missing/ledger")
+	if status != http.StatusNotFound {
+		t.Fatalf("GET ledger for missing wallet: status %d, want 404 (body %s)", status, raw)
+	}
+
+	var response dto.ErrorResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Error.Code != constants.CodeWalletNotFound {
+		t.Errorf("error code = %q, want %q", response.Error.Code, constants.CodeWalletNotFound)
+	}
+}
+
+func TestTransferRejectsDestinationBalanceOverflow(t *testing.T) {
+	env := testutil.NewEnv(t)
+	env.CreateWallet(t, "source", 100)
+	env.CreateWallet(t, "destination", int64(1<<63-1))
+	srv := newServer(t, env)
+
+	status, raw := post(t, srv, `{"idempotencyKey":"overflow-1","fromWalletId":"source","toWalletId":"destination","amount":1}`)
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("POST overflow transfer: status %d, want 422 (body %s)", status, raw)
+	}
+	var response dto.ErrorResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Error.Code != constants.CodeBalanceOverflow {
+		t.Errorf("error code = %q, want %q", response.Error.Code, constants.CodeBalanceOverflow)
+	}
+	if got := env.Balance(t, "source"); got != 100 {
+		t.Errorf("source balance = %d, want 100", got)
+	}
+	if got := env.Balance(t, "destination"); got != int64(1<<63-1) {
+		t.Errorf("destination balance = %d, want max int64", got)
+	}
+	if got := env.CountRows(t, "SELECT count(*) FROM ledger_entries"); got != 0 {
+		t.Errorf("ledger entries = %d, want 0", got)
+	}
+}
+
 // TestSmokeKeyReuseIsRejected covers the assignment's core subtlety: the same
 // idempotencyKey with a different payload must be refused, and must not move
 // money again.

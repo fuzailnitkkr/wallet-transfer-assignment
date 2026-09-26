@@ -24,7 +24,10 @@ const (
 )
 
 // Failure reasons recorded on FAILED transfers.
-const FailureInsufficientFunds = "INSUFFICIENT_FUNDS"
+const (
+	FailureInsufficientFunds = "INSUFFICIENT_FUNDS"
+	FailureBalanceOverflow   = "BALANCE_OVERFLOW"
+)
 
 const (
 	EntryDebit  domain.EntryType = "DEBIT"
@@ -37,6 +40,7 @@ const (
 	CodeWalletNotFound      = "WALLET_NOT_FOUND"
 	CodeTransferNotFound    = "TRANSFER_NOT_FOUND"
 	CodeInsufficientFunds   = "INSUFFICIENT_FUNDS"
+	CodeBalanceOverflow     = "BALANCE_OVERFLOW"
 	CodeKeyReused           = "IDEMPOTENCY_KEY_REUSED"
 	CodeLockTimeout         = "LOCK_TIMEOUT"
 	CodeStatementTimeout    = "STATEMENT_TIMEOUT"

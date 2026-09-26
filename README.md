@@ -147,6 +147,7 @@ idempotency key and replayed byte-for-byte on duplicates:
 | 201    | –                        | Transfer PROCESSED; balances and ledger updated     | yes      |
 | 404    | `WALLET_NOT_FOUND`       | A wallet does not exist; no transfer created        | yes      |
 | 422    | `INSUFFICIENT_FUNDS`     | Transfer FAILED; `transferId` in the error body     | yes      |
+| 422    | `BALANCE_OVERFLOW`       | Destination balance cannot represent the credit     | yes      |
 | 400    | `VALIDATION_ERROR`       | Malformed or invalid request; the key is not claimed| no       |
 | 409    | `IDEMPOTENCY_KEY_REUSED` | Same key, different payload; rejected               | no       |
 | 503    | `LOCK_TIMEOUT`           | Lock acquisition exceeded its budget; retry same key| no       |

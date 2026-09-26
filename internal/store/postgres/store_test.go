@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -96,6 +97,20 @@ func TestIdempotencyClaimConflictAndReplay(t *testing.T) {
 	}
 	if rec.RequestMatches {
 		t.Fatal("different payload must not compare as a match")
+	}
+}
+
+func TestIdempotencyCompletedTransferOutcomesRequireTransferID(t *testing.T) {
+	env := testutil.NewEnv(t)
+	ctx := context.Background()
+
+	for _, status := range []int{201, 422} {
+		_, err := env.Pool.Exec(ctx, `
+INSERT INTO idempotency_records (idempotency_key, request_body, response_status, response_body)
+VALUES ($1, '{}'::jsonb, $2, '{}')`, fmt.Sprintf("missing-transfer-%d", status), status)
+		if err == nil {
+			t.Errorf("response status %d without transfer_id must violate the idempotency constraint", status)
+		}
 	}
 }
 
