@@ -25,7 +25,7 @@ rate limiting.
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.24+
 - Docker and Docker Compose
 - `make`
 
