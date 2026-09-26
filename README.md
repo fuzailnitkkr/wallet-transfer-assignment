@@ -10,18 +10,20 @@ else is the Go standard library.
 Build a wallet transfer API on PostgreSQL where:
 
 - `POST /v1/transfers` moves an integer amount between two wallets and records
-  the movement in a double-entry ledger;
+the movement in a double-entry ledger;
 - clients can retry safely: a client-supplied idempotency key makes duplicate
-  requests replay the original outcome instead of moving money twice;
+requests replay the original outcome instead of moving money twice;
 - concurrent transfers are safe: many wallets see concurrent traffic, and a few
-  may be extremely hot;
+may be extremely hot;
 - PostgreSQL is the source of truth: the invariants that must never break are
-  enforced by the database, not only by application code.
+enforced by the database, not only by application code.
 
 Deliberately out of scope: authentication, multi-currency conversion, fees, and
 rate limiting.
 
 ## Setup and local development
+
+
 
 ### Prerequisites
 
@@ -41,6 +43,8 @@ cd wallet
 go mod download
 ```
 
+
+
 ### 2. Start PostgreSQL
 
 ```sh
@@ -48,6 +52,7 @@ make db-up
 ```
 
 PostgreSQL 17 starts in Docker and is exposed at `localhost:5433`.
+
 ### 3. Create the schema and demo wallets
 
 ```sh
@@ -57,10 +62,12 @@ make seed
 
 The seed command creates:
 
-| Wallet | Opening balance |
-|---|---:|
-| `wallet_1` | 1000 |
-| `wallet_2` | 500 |
+
+| Wallet     | Opening balance |
+| ---------- | --------------- |
+| `wallet_1` | 1000            |
+| `wallet_2` | 500             |
+
 
 Amounts are integer minor units.
 
@@ -78,6 +85,8 @@ In another terminal, confirm it is ready:
 curl -s http://localhost:8080/v1/healthz
 ```
 
+
+
 ### 5. Make a local transfer
 
 ```sh
@@ -91,6 +100,8 @@ Then inspect the updated wallet:
 ```sh
 curl -s http://localhost:8080/v1/wallets/wallet_1
 ```
+
+
 
 ### Useful local commands
 
@@ -109,18 +120,22 @@ default is:
 postgres://wallet:wallet@localhost:5433/wallet?sslmode=disable
 ```
 
+
+
 ## API
 
 `/v1` is the canonical API prefix. The unversioned endpoints remain supported
 as backwards-compatible aliases with identical behavior.
 
-| Method | Path                       | Description                                    |
-|--------|----------------------------|------------------------------------------------|
-| POST   | `/v1/transfers`            | Execute a transfer (idempotent)                |
-| GET    | `/v1/transfers/{id}`       | Fetch one transfer                             |
-| GET    | `/v1/wallets/{id}`         | Wallet balance                                 |
-| GET    | `/v1/wallets/{id}/ledger`  | Ledger entries for a wallet (`?limit=N`)       |
-| GET    | `/v1/healthz`              | Readiness probe (checks the database)          |
+
+| Method | Path                      | Description                              |
+| ------ | ------------------------- | ---------------------------------------- |
+| POST   | `/v1/transfers`           | Execute a transfer (idempotent)          |
+| GET    | `/v1/transfers/{id}`      | Fetch one transfer                       |
+| GET    | `/v1/wallets/{id}`        | Wallet balance                           |
+| GET    | `/v1/wallets/{id}/ledger` | Ledger entries for a wallet (`?limit=N`) |
+| GET    | `/v1/healthz`             | Readiness probe (checks the database)    |
+
 
 `GET /v1/wallets/{id}/ledger` returns entries newest first; the page size
 defaults to 100 and larger values are clamped to that. Malformed ids, and
@@ -140,20 +155,22 @@ Request:
 Outcomes — "recorded" means the status and body are stored against the
 idempotency key and replayed byte-for-byte on duplicates:
 
-| Status | Code                     | Meaning                                             | Recorded |
-|--------|--------------------------|-----------------------------------------------------|----------|
-| 201    | –                        | Transfer PROCESSED; balances and ledger updated     | yes      |
-| 404    | `WALLET_NOT_FOUND`       | A wallet does not exist; no transfer created        | yes      |
-| 422    | `INSUFFICIENT_FUNDS`     | Transfer FAILED; `transferId` in the error body     | yes      |
-| 422    | `BALANCE_OVERFLOW`       | Destination balance cannot represent the credit     | yes      |
-| 400    | `VALIDATION_ERROR`       | Malformed or invalid request; the key is not claimed| no       |
-| 409    | `IDEMPOTENCY_KEY_REUSED` | Same key, different payload; rejected               | no       |
-| 503    | `LOCK_TIMEOUT`           | Lock acquisition exceeded its budget; retry same key| no       |
-| 503    | `STATEMENT_TIMEOUT`      | Statement time limit exceeded; retry same key       | no       |
-| 503    | `DATABASE_UNAVAILABLE`   | Database unreachable or pool saturated; retry same key | no    |
-| 503    | `OUTCOME_UNKNOWN`        | Commit outcome unconfirmed; retry same key          | no       |
-| 499    | `CLIENT_CLOSED_REQUEST`  | Client disconnected; this request committed nothing | no       |
-| 500    | `INTERNAL_ERROR`         | Unexpected fault; details are in the server log     | no       |
+
+| Status | Code                     | Meaning                                                | Recorded |
+| ------ | ------------------------ | ------------------------------------------------------ | -------- |
+| 201    | –                        | Transfer PROCESSED; balances and ledger updated        | yes      |
+| 404    | `WALLET_NOT_FOUND`       | A wallet does not exist; no transfer created           | yes      |
+| 422    | `INSUFFICIENT_FUNDS`     | Transfer FAILED; `transferId` in the error body        | yes      |
+| 422    | `BALANCE_OVERFLOW`       | Destination balance cannot represent the credit        | yes      |
+| 400    | `VALIDATION_ERROR`       | Malformed or invalid request; the key is not claimed   | no       |
+| 409    | `IDEMPOTENCY_KEY_REUSED` | Same key, different payload; rejected                  | no       |
+| 503    | `LOCK_TIMEOUT`           | Lock acquisition exceeded its budget; retry same key   | no       |
+| 503    | `STATEMENT_TIMEOUT`      | Statement time limit exceeded; retry same key          | no       |
+| 503    | `DATABASE_UNAVAILABLE`   | Database unreachable or pool saturated; retry same key | no       |
+| 503    | `OUTCOME_UNKNOWN`        | Commit outcome unconfirmed; retry same key             | no       |
+| 499    | `CLIENT_CLOSED_REQUEST`  | Client disconnected; this request committed nothing    | no       |
+| 500    | `INTERNAL_ERROR`         | Unexpected fault; details are in the server log        | no       |
+
 
 The first three 503s are definite failures: nothing has been committed.
 `OUTCOME_UNKNOWN` means the commit itself is in doubt — it may or may not have
@@ -163,6 +180,8 @@ caller disconnected before an outcome existed; that request committed nothing
 (a disconnect during the commit itself is `OUTCOME_UNKNOWN`, not 499).
 
 ## Design
+
+
 
 ### Architecture
 
@@ -197,6 +216,8 @@ flowchart TB
     Migrate --> DB
     Seed --> DB
 ```
+
+
 
 Handlers stay thin: they decode strictly, call the service, and write back what
 the service decided. The service depends on the `Store`/`Tx` interfaces
@@ -254,12 +275,16 @@ erDiagram
     TRANSFERS o|--o{ IDEMPOTENCY_RECORDS : "transfer_id"
 ```
 
-| Table | Purpose | Key pins |
-|---|---|---|
-| `wallets` | Stored balance per wallet | `balance >= 0`, non-blank id |
-| `transfers` | One attempted movement; state machine row | amount > 0, distinct wallets, valid status, FAILED ⇔ failure_reason, `UNIQUE (id, amount)` (target of the ledger's composite FK) |
-| `ledger_entries` | Double-entry pair per processed transfer | `(transfer_id, amount)` FK → `transfers (id, amount)` pins each entry to its transfer's amount; `UNIQUE (transfer_id, entry_type)` allows at most one DEBIT and one CREDIT; amount > 0; type ∈ {DEBIT, CREDIT} |
-| `idempotency_records` | One row per idempotency key | PK on the key; response status/body stored together (all-or-nothing); only 201/404/422 can be recorded; 404 rows carry no transfer id |
+
+
+
+| Table                 | Purpose                                   | Key pins                                                                                                                                                                                                       |
+| --------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wallets`             | Stored balance per wallet                 | `balance >= 0`, non-blank id                                                                                                                                                                                   |
+| `transfers`           | One attempted movement; state machine row | amount > 0, distinct wallets, valid status, FAILED ⇔ failure_reason, `UNIQUE (id, amount)` (target of the ledger's composite FK)                                                                               |
+| `ledger_entries`      | Double-entry pair per processed transfer  | `(transfer_id, amount)` FK → `transfers (id, amount)` pins each entry to its transfer's amount; `UNIQUE (transfer_id, entry_type)` allows at most one DEBIT and one CREDIT; amount > 0; type ∈ {DEBIT, CREDIT} |
+| `idempotency_records` | One row per idempotency key               | PK on the key; response status/body stored together (all-or-nothing); only 201/404/422 can be recorded; 404 rows carry no transfer id                                                                          |
+
 
 Money is `bigint` minor units — no floats, ever. Migration `0001_init.sql`
 carries the full constraint list. The two `transfers_*_wallet_idx` indexes that
@@ -339,13 +364,15 @@ flowchart TD
     Resolved -- "No" --> Unknown["503 OUTCOME_UNKNOWN<br/>Retry same key"]
 ```
 
+
+
 One transaction per transfer attempt:
 
 1. claim the idempotency key (`INSERT … ON CONFLICT DO NOTHING`),
 2. lock both wallets in ascending id order (one statement),
 3. insert the transfer as PENDING,
 4. debit (guarded), credit, write the ledger pair — or mark the transfer FAILED
-   with a reason,
+  with a reason,
 5. record the outcome against the key, COMMIT, then respond.
 
 The response is only written after the commit, so an outcome can never be
@@ -357,35 +384,39 @@ under REPEATABLE READ the claim path would surface serialization failures
 ### Concurrency & locking
 
 - Wallets are locked by a single statement,
-  `SELECT … WHERE id = ANY($1) ORDER BY id FOR NO KEY UPDATE`, which acquires
-  row locks in ascending id order (the plan is literally `LockRows → Sort(id)`),
-  making deadlock between transfers impossible. A raw-SQL unordered control
-  test produces 40P01 to pin the counterexample.
+`SELECT … WHERE id = ANY($1) ORDER BY id FOR NO KEY UPDATE`, which acquires
+row locks in ascending id order (the plan is literally `LockRows → Sort(id)`),
+making deadlock between transfers impossible. A raw-SQL unordered control
+test produces 40P01 to pin the counterexample.
 - Same-key duplicates queue at the idempotency claim before touching any wallet.
 - Bounded waits everywhere: `lock_timeout` (default 2000 ms) caps each lock
-  acquisition attempt (a transfer's two-row lock statement can therefore wait
-  once per wallet), `statement_timeout` (5000 ms) caps any single statement,
-  and every pool acquire — inside `InTx` and on the read paths — is bounded at
-  5 s. On expiry the request ends as a clean, retry-safe 503 with nothing
-  committed — under sustained overload the service sheds load instead of
-  queueing unboundedly.
+acquisition attempt (a transfer's two-row lock statement can therefore wait
+once per wallet), `statement_timeout` (5000 ms) caps any single statement,
+and every pool acquire — inside `InTx` and on the read paths — is bounded at
+5 s. On expiry the request ends as a clean, retry-safe 503 with nothing
+committed — under sustained overload the service sheds load instead of
+queueing unboundedly.
 - Hot wallets: throughput per wallet is bounded by row-lock serialization (one
-  transfer per wallet at a time; ~400-500 tx/s into a single hot pair measured
-  on a Docker Desktop dev machine). Serving 10k tx/s concentrated into a few
-  wallets would require a different write model (netting/batching or sharded
-  balances), which is deliberately out of scope.
+transfer per wallet at a time; ~400-500 tx/s into a single hot pair measured
+on a Docker Desktop dev machine). Serving 10k tx/s concentrated into a few
+wallets would require a different write model (netting/batching or sharded
+balances), which is deliberately out of scope.
+
+
 
 ### Pool sizing
 
 `MaxConns` is 32 per instance, picked from a measured sweep (15 s windows,
 64 concurrent clients, real PostgreSQL, one hot pair):
 
-| `MaxConns` | `GET /wallets/{id}` | replay (same key) | hot-pair transfers  |
-|-----------:|--------------------:|------------------:|--------------------:|
-| 8          | 12.9k rps, p50 4.8 ms | 3.0k rps, p50 20 ms | 475 rps, 0×503  |
-| 16         | 17.9k rps, p50 3.4 ms | 3.8k rps, p50 16 ms | 359 rps, 1×503  |
-| 32         | 21.7k rps, p50 2.7 ms | 5.1k rps, p50 12 ms | 354 rps, 15×503 |
-| 64         | 22.1k rps, p50 2.7 ms | 5.3k rps, p50 12 ms | 286 rps, 0×503  |
+
+| `MaxConns` | `GET /wallets/{id}`   | replay (same key)   | hot-pair transfers |
+| ---------- | --------------------- | ------------------- | ------------------ |
+| 8          | 12.9k rps, p50 4.8 ms | 3.0k rps, p50 20 ms | 475 rps, 0×503     |
+| 16         | 17.9k rps, p50 3.4 ms | 3.8k rps, p50 16 ms | 359 rps, 1×503     |
+| 32         | 21.7k rps, p50 2.7 ms | 5.1k rps, p50 12 ms | 354 rps, 15×503    |
+| 64         | 22.1k rps, p50 2.7 ms | 5.3k rps, p50 12 ms | 286 rps, 0×503     |
+
 
 Reads and replays scale to 32 connections and then plateau (+2-4% at 64, where
 the 8-vCPU server is the bottleneck, not the pool). Transfers are bounded by
@@ -408,18 +439,20 @@ cosmetic JSON differences compare equal and semantic differences never do.
 Intentional semantics — reading these wrong will look like bugs:
 
 - same key + different payload → 409, and the key is *not* burned; the original
-  record stays replayable;
+record stays replayable;
 - 400 (validation) never claims a key; 409 never claims a key; the 503s for
-  lock/statement/transport failures leave no trace at all, while
-  `OUTCOME_UNKNOWN` may have committed — the same-key retry converges either way;
+lock/statement/transport failures leave no trace at all, while
+`OUTCOME_UNKNOWN` may have committed — the same-key retry converges either way;
 - 404 outcomes are recorded without creating a transfer row;
 - a committed key is always complete. A conflict that finds an incomplete
-  record is treated as an internal error (500) and logged loudly — it is a
-  tripwire for a state that is unreachable by design;
+record is treated as an internal error (500) and logged loudly — it is a
+tripwire for a state that is unreachable by design;
 - if COMMIT itself fails, the outcome is resolved by reading the record back on
-  a fresh connection; if that cannot confirm the result, the client gets 503
-  `OUTCOME_UNKNOWN`, and a retry with the same key converges (replay or fresh
-  claim).
+a fresh connection; if that cannot confirm the result, the client gets 503
+`OUTCOME_UNKNOWN`, and a retry with the same key converges (replay or fresh
+claim).
+
+
 
 ### Transfer state machine
 
@@ -451,14 +484,16 @@ under API above; the mapping lives in one place (`internal/api/responses.go`).
 ## Observability
 
 - One structured JSON log line per HTTP request: method, path, status,
-  `duration_ms` (slog to stdout).
+`duration_ms` (slog to stdout).
 - Business events with identifiers: transfer processed/failed (with transfer
-  id, wallets, amount), replays, key-reuse warnings, commit-outcome resolutions,
-  and the incomplete-record tripwire as an error.
+id, wallets, amount), replays, key-reuse warnings, commit-outcome resolutions,
+and the incomplete-record tripwire as an error.
 - `GET /v1/healthz` is the canonical readiness probe: it pings the database
-  with a 2 s timeout and answers 503 when unavailable.
+with a 2 s timeout and answers 503 when unavailable.
 - Not implemented: metrics and tracing. At production volume the request log
-  would need sampling.
+would need sampling.
+
+
 
 ## Testing
 
@@ -468,21 +503,21 @@ nothing is mocked where database behavior is the subject. Override the test
 database with `TEST_DATABASE_URL`. Suites (38 tests):
 
 - `tests/smoke_test.go` — HTTP end-to-end: happy path, key reuse, validation
-  and unknown wallets, ledger limit validation.
+and unknown wallets, ledger limit validation.
 - `tests/concurrency_test.go` — 10 barrier-released race tests through the real
-  HTTP stack: same-wallet within/over balance, 50-racer saturation, hot
-  destination, same-key races (identical payloads, different payloads, recorded
-  failure replayed), in-flight duplicate waits, opposite-direction transfers,
-  independent parallel transfers.
+HTTP stack: same-wallet within/over balance, 50-racer saturation, hot
+destination, same-key races (identical payloads, different payloads, recorded
+failure replayed), in-flight duplicate waits, opposite-direction transfers,
+independent parallel transfers.
 - `tests/failure_test.go` — 12 fault-injection tests: one-shot failure of every
-  write step, database outage containment, and the commit-in-doubt outcomes
-  (landed, never landed, and landed while the client was already gone), each
-  verified against a whole-database oracle.
+write step, database outage containment, and the commit-in-doubt outcomes
+(landed, never landed, and landed while the client was already gone), each
+verified against a whole-database oracle.
 - `internal/store/postgres` — SQL-level: claim conflict/replay, ordered locking
-  (plus the unordered deadlock control), guarded debit, ledger pinning,
-  terminal states, write-once completion, raw-SQL constraint pins.
+(plus the unordered deadlock control), guarded debit, ledger pinning,
+terminal states, write-once completion, raw-SQL constraint pins.
 - `internal/api`, `internal/config` — error-mapping table, router 404/405
-  fallbacks, config parsing.
+fallbacks, config parsing.
 
 ```sh
 make db-up
@@ -534,85 +569,95 @@ WHERE t.status <> 'PROCESSED'
    OR (le.entry_type = 'CREDIT' AND le.wallet_id <> t.to_wallet_id);
 ```
 
+
+
 ## Configuration
 
-| Variable          | Default                                                    | Meaning                          |
-|-------------------|------------------------------------------------------------|----------------------------------|
-| `HTTP_ADDR`       | `:8080`                                                    | Listen address                   |
-| `DATABASE_URL`    | `postgres://wallet:wallet@localhost:5433/wallet?sslmode=disable` | Connection string          |
-| `LOCK_TIMEOUT_MS` | `2000`                                                     | Per lock acquisition attempt      |
-| `RUN_MIGRATIONS`  | `false`                                                    | Apply migrations at API startup  |
+
+| Variable          | Default                                                          | Meaning                         |
+| ----------------- | ---------------------------------------------------------------- | ------------------------------- |
+| `HTTP_ADDR`       | `:8080`                                                          | Listen address                  |
+| `DATABASE_URL`    | `postgres://wallet:wallet@localhost:5433/wallet?sslmode=disable` | Connection string               |
+| `LOCK_TIMEOUT_MS` | `2000`                                                           | Per lock acquisition attempt    |
+| `RUN_MIGRATIONS`  | `false`                                                          | Apply migrations at API startup |
+
+
+
 
 ## Assumptions
 
 - Single currency: `currency` is stored and returned, but transfers do not check
-  that both wallets share it (multi-currency would need an FX policy).
+that both wallets share it (multi-currency would need an FX policy).
 - Amounts are integers in minor units; the max accepted amount is 10^15.
 - Idempotency keys and wallet ids are opaque strings up to 255 characters
-  (keys: no leading/trailing whitespace, no NUL bytes).
+(keys: no leading/trailing whitespace, no NUL bytes).
 - Clients retry 5xx responses with the *same* idempotency key.
 - One primary database serves both writes and reads; the database clock is the
-  only time source.
+only time source.
+
+
 
 ## Trade-offs
 
 - **One transaction per transfer.** Atomicity and replay-by-construction over
-  raw throughput; the whole attempt — claim, locks, money movement, outcome
-  record — is one commit.
+raw throughput; the whole attempt — claim, locks, money movement, outcome
+record — is one commit.
 - **Claim before lock.** Every request inserts its idempotency row before
-  touching wallets: one extra insert per transfer buys duplicate safety and
-  deadlock-free ordering.
+touching wallets: one extra insert per transfer buys duplicate safety and
+deadlock-free ordering.
 - **Bounded waits over unbounded queueing.** Lock/statement/acquire timeouts
-  convert overload into retry-safe 503s instead of latency creep.
+convert overload into retry-safe 503s instead of latency creep.
 - **Stored response bodies.** Outcomes are persisted so replays are
-  byte-identical; a little storage per key buys exact replay semantics.
+byte-identical; a little storage per key buys exact replay semantics.
 - **Session settings per transaction** (`SET LOCAL`, both timeouts in one
-  statement) rather than per-connection parameters: self-contained behavior,
-  at the cost of a single round trip.
+statement) rather than per-connection parameters: self-contained behavior,
+at the cost of a single round trip.
 - **Dropped the speculative indexes** on `transfers(from_wallet_id)` and
-  `transfers(to_wallet_id)` (migration `0002`): no query plan ever chose them,
-  and they were pure write cost on every transfer insert; re-add with
-  `CREATE INDEX CONCURRENTLY` if an operational access path materializes.
+`transfers(to_wallet_id)` (migration `0002`): no query plan ever chose them,
+and they were pure write cost on every transfer insert; re-add with
+`CREATE INDEX CONCURRENTLY` if an operational access path materializes.
+
+
 
 ## Known limitations
 
-- **No retention for `idempotency_records`** — it grows unboundedly. A purge
-  job should delete completed records past their replay window; never delete a
-  claimed-but-incomplete row (that state is an in-flight request):
-
+- **No retention for** `idempotency_records` — it grows unboundedly. A purge
+job should delete completed records past their replay window; never delete a
+claimed-but-incomplete row (that state is an in-flight request):
   ```sql
   DELETE FROM idempotency_records
   WHERE response_status IS NOT NULL
     AND updated_at < now() - interval '30 days';
   ```
-
 - **Opening balances are outside the ledger.** The seeded wallets start at
-  1000/500 and that genesis is not itself a ledger entry, so balance == ledger
-  net holds only relative to opening balances. The audit SQL above takes
-  openings as input; in a production ledger, genesis would be posted as
-  entries.
+1000/500 and that genesis is not itself a ledger entry, so balance == ledger
+net holds only relative to opening balances. The audit SQL above takes
+openings as input; in a production ledger, genesis would be posted as
+entries.
 - **Ledger immutability at the row level is not enforced by the schema.** Direct
-  SQL can still rewrite a `wallet_id` or delete a `ledger_entries` row (production:
-  use a DB role without UPDATE/DELETE on `ledger_entries`). The schema does enforce
-  that: ledger entries may only be attached to PROCESSED transfers (migration 0006
-  deferred constraint trigger), DEBIT must reference the source wallet and CREDIT
-  the destination (migration 0004 BEFORE trigger), wallet IDs on a transfer cannot
-  be changed once ledger entries exist (migration 0005 BEFORE UPDATE trigger), and
-  at most one DEBIT and one CREDIT per transfer (unique constraint).
+SQL can still rewrite a `wallet_id` or delete a `ledger_entries` row (production:
+use a DB role without UPDATE/DELETE on `ledger_entries`). The schema does enforce
+that: ledger entries may only be attached to PROCESSED transfers (migration 0006
+deferred constraint trigger), DEBIT must reference the source wallet and CREDIT
+the destination (migration 0004 BEFORE trigger), wallet IDs on a transfer cannot
+be changed once ledger entries exist (migration 0005 BEFORE UPDATE trigger), and
+at most one DEBIT and one CREDIT per transfer (unique constraint).
 - **The incomplete-record conflict is a tripwire, not a recovery path**: 500 +
-  error log. Unreachable by construction; loud on purpose.
+error log. Unreachable by construction; loud on purpose.
 - **Hot-wallet throughput is bounded by row-lock serialization** (~400-500 tx/s
-  into a single hot pair in the load measurements). Extreme concentration needs
-  a redesign (netting/batching/sharded balances), not tuning.
+into a single hot pair in the load measurements). Extreme concentration needs
+a redesign (netting/batching/sharded balances), not tuning.
 - **No PgBouncer in this deployment.** One instance × 32 pool connections sits
-  far below `max_connections=100`, and the protocol is chatty (11 round trips
-  per transfer, 5 per replay), so a proxy hop would only add latency.
-  Transaction-mode pooling would also break pgx's default prepared-statement
-  cache (`QueryExecModeCacheStatement`) unless PgBouncer ≥ 1.21 runs with
-  `max_prepared_statements`, or the app switches exec mode. PgBouncer earns its
-  keep at multi-instance fan-in (instances × pool > `max_connections`), with
-  churny/serverless clients, or to shrink backend memory — not here.
+far below `max_connections=100`, and the protocol is chatty (11 round trips
+per transfer, 5 per replay), so a proxy hop would only add latency.
+Transaction-mode pooling would also break pgx's default prepared-statement
+cache (`QueryExecModeCacheStatement`) unless PgBouncer ≥ 1.21 runs with
+`max_prepared_statements`, or the app switches exec mode. PgBouncer earns its
+keep at multi-instance fan-in (instances × pool > `max_connections`), with
+churny/serverless clients, or to shrink backend memory — not here.
 - No metrics/tracing, no auth, no rate limiting.
+
+
 
 ## Project layout
 
@@ -655,6 +700,9 @@ migrations/
                                              transfers
   0007_fix_ledger_wallet_role_not_found.sql  Hot-fix: ensure the 0004 trigger
                                              function includes the NOT FOUND guard
+  008enforce_processed_transfer_has_ledger_pair.sql Hot-fix: ensure the 0006 trigger
+                                             closes the inverse gap
+  
   embed.go                                   //go:embed *.sql for the runner
   runner.go                                  Advisory-locked migration runner
 
@@ -668,6 +716,8 @@ tests/
     testutil.go       Real-PostgreSQL test harness: DB creation, migrations,
                       advisory-lock suite serialization, Env helpers
 ```
+
+
 
 ## AI usage
 
