@@ -591,11 +591,14 @@ WHERE t.status <> 'PROCESSED'
   net holds only relative to opening balances. The audit SQL above takes
   openings as input; in a production ledger, genesis would be posted as
   entries.
-- **Ledger immutability and role pinning are application + test enforced.** The
-  database caps entries per transfer and pins amounts, but nothing prevents
-  direct SQL from rewriting a `wallet_id` or deleting an entry (production:
-  use a role without UPDATE/DELETE on `ledger_entries`), and "DEBIT belongs to
-  the source wallet" is not a schema constraint.
+- **Ledger immutability at the row level is not enforced by the schema.** Direct
+  SQL can still rewrite a `wallet_id` or delete a `ledger_entries` row (production:
+  use a DB role without UPDATE/DELETE on `ledger_entries`). The schema does enforce
+  that: ledger entries may only be attached to PROCESSED transfers (migration 0006
+  deferred constraint trigger), DEBIT must reference the source wallet and CREDIT
+  the destination (migration 0004 BEFORE trigger), wallet IDs on a transfer cannot
+  be changed once ledger entries exist (migration 0005 BEFORE UPDATE trigger), and
+  at most one DEBIT and one CREDIT per transfer (unique constraint).
 - **The incomplete-record conflict is a tripwire, not a recovery path**: 500 +
   error log. Unreachable by construction; loud on purpose.
 - **Hot-wallet throughput is bounded by row-lock serialization** (~400-500 tx/s
@@ -614,16 +617,56 @@ WHERE t.status <> 'PROCESSED'
 ## Project layout
 
 ```
-cmd/api         HTTP server entrypoint
-cmd/migrate     migration runner
-cmd/seed        demo data
-internal/api    HTTP layer: routing, decoding, error mapping
-internal/service business logic (validation, transfer transaction, replay)
-internal/store/postgres  SQL implementations of the service ports
-internal/domain core types and errors
-internal/dto    shared JSON shapes
-migrations      embedded SQL migrations
-tests           end-to-end tests against real PostgreSQL
+cmd/
+  api/            HTTP server entrypoint (main.go)
+  migrate/        Standalone migration runner (main.go)
+  seed/           Demo-wallet seeder (main.go)
+
+internal/
+  api/            HTTP layer: router, strict decoding, middleware,
+                  error mapping, transfers and wallets handlers
+  config/         Environment-variable configuration loading
+  constants/      Shared constants (limits, timeouts, SQL queries)
+  domain/         Core types (Wallet, Transfer, LedgerEntry) and
+                  domain error sentinels
+  dto/            JSON request/response shapes
+  service/        Business logic: validation, idempotency, transfer
+                  state machine, replay; storage ports (ports.go)
+  store/postgres/ pgx implementations of the service ports:
+                    store.go        pool, InTx, error mapping
+                    wallets.go      GetWallet, LockWallets, Debit/Credit
+                    transfers.go    CreateTransfer, MarkProcessed/Failed, GetTransfer
+                    ledger.go       InsertLedgerEntries, ListWalletLedger
+                    idempotency.go  ClaimIdempotency, CompleteIdempotency,
+                                    GetIdempotencyRecord
+
+migrations/
+  0001_init.sql                              Initial schema (wallets, transfers,
+                                             ledger_entries, idempotency_records)
+  0002_drop_unused_transfer_indexes.sql      Remove speculative indexes
+  0003_strengthen_idempotency_outcome_constraint.sql
+  0004_enforce_ledger_wallet_roles.sql       BEFORE trigger: DEBIT→source,
+                                             CREDIT→destination
+  0005_immutable_transfer_wallet_ids.sql     BEFORE UPDATE trigger: prevent
+                                             wallet ID changes once ledger
+                                             entries exist
+  0006_ledger_requires_processed_transfer.sql  Deferred constraint trigger:
+                                             reject ledger entries on non-PROCESSED
+                                             transfers
+  0007_fix_ledger_wallet_role_not_found.sql  Hot-fix: ensure the 0004 trigger
+                                             function includes the NOT FOUND guard
+  embed.go                                   //go:embed *.sql for the runner
+  runner.go                                  Advisory-locked migration runner
+
+tests/
+  smoke_test.go       HTTP end-to-end happy path, key reuse, validation
+  concurrency_test.go 10 barrier-released race tests through the HTTP stack
+  failure_test.go     12 fault-injection tests + whole-database oracle
+  faultstore_test.go  Fault-injection store wrapper used by failure tests
+  doc.go              Package doc
+  testutil/
+    testutil.go       Real-PostgreSQL test harness: DB creation, migrations,
+                      advisory-lock suite serialization, Env helpers
 ```
 
 ## AI usage
