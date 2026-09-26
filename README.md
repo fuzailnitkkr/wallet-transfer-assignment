@@ -637,10 +637,10 @@ entries.
 - **Ledger immutability at the row level is not enforced by the schema.** Direct
 SQL can still rewrite a `wallet_id` or delete a `ledger_entries` row (production:
 use a DB role without UPDATE/DELETE on `ledger_entries`). The schema does enforce
-that: ledger entries may only be attached to PROCESSED transfers (migration 0006
-deferred constraint trigger), DEBIT must reference the source wallet and CREDIT
-the destination (migration 0004 BEFORE trigger), wallet IDs on a transfer cannot
-be changed once ledger entries exist (migration 0005 BEFORE UPDATE trigger), and
+that all database-level invariants are enforced in migration 0005: ledger entries
+only attach to PROCESSED transfers (deferred constraint trigger), DEBIT references
+the source wallet and CREDIT the destination (BEFORE trigger), wallet IDs cannot
+change once ledger entries exist (BEFORE UPDATE trigger), and
 at most one DEBIT and one CREDIT per transfer (unique constraint).
 - **The incomplete-record conflict is a tripwire, not a recovery path**: 500 +
 error log. Unreachable by construction; loud on purpose.
@@ -692,16 +692,11 @@ migrations/
   0003_strengthen_idempotency_outcome_constraint.sql
   0004_enforce_ledger_wallet_roles.sql       BEFORE trigger: DEBIT→source,
                                              CREDIT→destination
-  0005_immutable_transfer_wallet_ids.sql     BEFORE UPDATE trigger: prevent
-                                             wallet ID changes once ledger
-                                             entries exist
-  0006_ledger_requires_processed_transfer.sql  Deferred constraint trigger:
-                                             reject ledger entries on non-PROCESSED
-                                             transfers
-  0007_fix_ledger_wallet_role_not_found.sql  Hot-fix: ensure the 0004 trigger
-                                             function includes the NOT FOUND guard
-  008_enforce_processed_transfer_has_ledger_pair.sql Hot-fix: ensure the 0006 trigger
-                                             closes the inverse gap
+  0005_strengthen_invariants.sql             Consolidated database-level
+                                             invariants: wallet role enforcement,
+                                             state machine, deferred pair
+                                             validation, immutability, and
+                                             deletion safeguards
   
   embed.go                                   //go:embed *.sql for the runner
   runner.go                                  Advisory-locked migration runner

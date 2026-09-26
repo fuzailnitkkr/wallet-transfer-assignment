@@ -41,7 +41,9 @@ func DatabaseURL() string {
 func redactURL(raw string) string {
 	cfg, err := pgx.ParseConfig(raw)
 	if err != nil {
-		return raw
+		// Cannot parse the URL; return a safe placeholder rather than
+		// echoing the raw value, which may contain an embedded password.
+		return "<redacted: malformed URL>"
 	}
 	// Rebuild as host:port/database — enough context to diagnose a
 	// connection failure without leaking credentials.
