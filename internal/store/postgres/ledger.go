@@ -25,6 +25,14 @@ func (s *Store) ListWalletLedger(ctx context.Context, walletID string, limit int
 	ctx, cancel := boundedPoolCtx(ctx)
 	defer cancel()
 
+	var exists bool
+	if err := s.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM wallets WHERE id = $1)", walletID).Scan(&exists); err != nil {
+		return nil, mapError(fmt.Errorf("check wallet for ledger: %w", err))
+	}
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", domain.ErrWalletNotFound, walletID)
+	}
+
 	rows, err := s.pool.Query(ctx, constants.ListWalletLedgerSQL, walletID, limit)
 	if err != nil {
 		return nil, mapError(fmt.Errorf("list wallet ledger: %w", err))

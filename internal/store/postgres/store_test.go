@@ -321,6 +321,44 @@ func TestLedgerEntriesArePinnedToTheirTransfer(t *testing.T) {
 	}
 }
 
+func TestLedgerEntriesMustUseTheirTransfersWalletRoles(t *testing.T) {
+	env := testutil.NewEnv(t)
+	env.CreateWallet(t, "w_role_source", 1000)
+	env.CreateWallet(t, "w_role_destination", 0)
+	env.CreateWallet(t, "w_role_other", 0)
+	ctx := context.Background()
+
+	var transferID string
+	if err := env.Pool.QueryRow(ctx, `
+INSERT INTO transfers (from_wallet_id, to_wallet_id, amount)
+VALUES ('w_role_source', 'w_role_destination', 100)
+RETURNING id::text`).Scan(&transferID); err != nil {
+		t.Fatalf("create transfer: %v", err)
+	}
+
+	for _, entry := range []struct {
+		name string
+		typ  string
+	}{
+		{name: "debit must use source wallet", typ: "DEBIT"},
+		{name: "credit must use destination wallet", typ: "CREDIT"},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			_, err := env.Pool.Exec(ctx, `
+INSERT INTO ledger_entries (transfer_id, wallet_id, entry_type, amount)
+VALUES ($1::uuid, 'w_role_other', $2, 100)`, transferID, entry.typ)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Fatalf("wrong-wallet %s entry must be rejected with check_violation (23514), got %v", entry.typ, err)
+			}
+		})
+	}
+
+	if n := env.CountRows(t, "SELECT count(*) FROM ledger_entries WHERE transfer_id = $1::uuid", transferID); n != 0 {
+		t.Fatalf("invalid ledger entries committed = %d, want 0", n)
+	}
+}
+
 // TestTransferStateMachineIsTerminal covers the guarded status updates: once
 // a transfer leaves PENDING it can never be moved again.
 func TestTransferStateMachineIsTerminal(t *testing.T) {
