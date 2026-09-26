@@ -35,6 +35,19 @@ func DatabaseURL() string {
 	return defaultTestDatabaseURL
 }
 
+// redactURL removes the password from a PostgreSQL connection URL so it is
+// safe to include in logs and error messages. If the URL cannot be parsed the
+// original string is returned unchanged.
+func redactURL(raw string) string {
+	cfg, err := pgx.ParseConfig(raw)
+	if err != nil {
+		return raw
+	}
+	// Rebuild as host:port/database — enough context to diagnose a
+	// connection failure without leaking credentials.
+	return fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.Database)
+}
+
 // Run prepares the test database and runs the suite. Every test package calls
 // it from TestMain:
 //
@@ -50,7 +63,7 @@ func Run(m *testing.M) int {
 
 	conn, err := pgx.Connect(ctx, url)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "testutil: connect %s: %v\n", url, err)
+		fmt.Fprintf(os.Stderr, "testutil: connect %s: %v\n", redactURL(url), err)
 		return 1
 	}
 	defer conn.Close(context.WithoutCancel(ctx))
@@ -94,11 +107,11 @@ func lockSuite(ctx context.Context, conn *pgx.Conn) error {
 func ensureDatabase(ctx context.Context, url string) error {
 	cfg, err := pgx.ParseConfig(url)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", url, err)
+		return fmt.Errorf("parse %s: %w", redactURL(url), err)
 	}
 	target := cfg.Database
 	if target == "" {
-		return fmt.Errorf("database name missing in %s", url)
+		return fmt.Errorf("database name missing in %s", redactURL(url))
 	}
 
 	admin := cfg.Copy()

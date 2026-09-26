@@ -114,11 +114,14 @@ ORDER BY id DESC
 LIMIT $2`
 
 // SetLocalTransactionTimeoutsSQL sets per-transaction lock and statement
-// budgets and defers the ledger-status trigger so that InsertLedgerEntries
-// (which runs while the transfer is still PENDING) succeeds within the
-// transaction; the trigger fires at COMMIT after MarkProcessed has already
-// set the transfer to PROCESSED.
-const SetLocalTransactionTimeoutsSQL = "SET LOCAL lock_timeout = %d; SET LOCAL statement_timeout = %d; SET CONSTRAINTS ledger_entries_require_processed_transfer DEFERRED"
+// budgets and defers both constraint triggers that need to run at COMMIT:
+//   - ledger_entries_require_processed_transfer: InsertLedgerEntries runs while
+//     the transfer is still PENDING; deferring lets the check see the final
+//     PROCESSED state at commit.
+//   - transfers_processed_requires_ledger_pair: MarkProcessed fires before the
+//     ledger rows are visible to a statement-time trigger; deferring ensures
+//     the pair check runs after both writes have landed.
+const SetLocalTransactionTimeoutsSQL = "SET LOCAL lock_timeout = %d; SET LOCAL statement_timeout = %d; SET CONSTRAINTS ledger_entries_require_processed_transfer, transfers_processed_requires_ledger_pair DEFERRED"
 
 const SeedWalletsSQL = `
 INSERT INTO wallets (id, balance, currency)

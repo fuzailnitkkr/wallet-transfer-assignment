@@ -377,6 +377,18 @@ func TestTransferStateMachineIsTerminal(t *testing.T) {
 		if tr.Status != constants.TransferPending {
 			t.Fatalf("new transfer status = %s, want PENDING", tr.Status)
 		}
+		// Insert the required ledger pair so the deferred trigger that
+		// enforces "PROCESSED transfers must have exactly one DEBIT and one
+		// CREDIT" does not reject the commit.
+		if _, err := tx.DebitWallet(ctx, "w_sm_a", 100); err != nil {
+			return err
+		}
+		if err := tx.CreditWallet(ctx, "w_sm_b", 100); err != nil {
+			return err
+		}
+		if err := tx.InsertLedgerEntries(ctx, tr.ID, "w_sm_a", "w_sm_b", 100); err != nil {
+			return err
+		}
 		if err := tx.MarkProcessed(ctx, tr.ID); err != nil {
 			return err
 		}
