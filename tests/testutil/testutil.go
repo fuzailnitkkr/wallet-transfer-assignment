@@ -118,6 +118,10 @@ func ensureDatabase(ctx context.Context, url string) error {
 	// CREATE DATABASE cannot run inside a transaction and takes no bind
 	// parameters; the identifier is quoted by pgx.
 	if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{target}.Sanitize()); err != nil {
+		var existsAfterRace bool
+		if checkErr := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", target).Scan(&existsAfterRace); checkErr == nil && existsAfterRace {
+			return nil
+		}
 		return fmt.Errorf("create database %s: %w", target, err)
 	}
 	return nil
